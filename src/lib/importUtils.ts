@@ -50,7 +50,7 @@ export async function parseExcelFile(file: File, operator: string): Promise<any[
 
           return {
             operator,
-            phNemo: String(getVal('loc. memo') || getVal('memo') || getVal('ph nemo') || ''),
+            phNemo: String(getVal('loc. nemo') || getVal('loc. memo') || getVal('nemo') || getVal('memo') || getVal('ph nemo') || ''),
             localizador: String(getVal('localizador') || ''),
             siti: String(getVal('negocio') || getVal('siti') || ''),
             apellido: String(getVal('pasajero') || ''),
