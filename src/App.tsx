@@ -3,21 +3,22 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { useAppStore } from './store';
 import { generatePDF } from './lib/pdf';
+import { parseExcelFile, parsePDFFile } from './lib/importUtils';
 import { format } from 'date-fns';
 import { 
   Search, Plus, Download, Trash2, CheckCircle, 
   XCircle, Menu, X, FileText, LayoutDashboard,
-  ArrowUpDown, ArrowUp, ArrowDown
+  ArrowUpDown, ArrowUp, ArrowDown, Upload
 } from 'lucide-react';
 import { Reservation } from './types';
 
 export default function App() {
   const { 
-    reservations, operators, addReservation, 
-    deleteReservation, togglePaidStatus, addOperator, deleteOperator, isLoaded 
+    reservations, operators, addReservation, batchAddReservations,
+    deleteReservation, batchDeleteReservations, togglePaidStatus, addOperator, deleteOperator, isLoaded 
   } = useAppStore();
 
   const [activeTab, setActiveTab] = useState<string>('RESUMEN');
@@ -26,10 +27,21 @@ export default function App() {
   const [showAddModal, setShowAddModal] = useState(false);
   const [showNewOperatorModal, setShowNewOperatorModal] = useState(false);
   const [newOperatorName, setNewOperatorName] = useState('');
+  const [isImporting, setIsImporting] = useState(false);
   
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
   const [reservationToDelete, setReservationToDelete] = useState<string | null>(null);
   const [operatorToDelete, setOperatorToDelete] = useState<string | null>(null);
+  
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [showBatchDeleteModal, setShowBatchDeleteModal] = useState(false);
+
+  // Clear selection when changing tabs or searching
+  useEffect(() => {
+    setSelectedIds(new Set());
+  }, [activeTab, searchTerm]);
 
   // Form state
   const [formData, setFormData] = useState({
@@ -105,6 +117,62 @@ export default function App() {
   const handleExportPDF = () => {
     const title = activeTab === 'RESUMEN' ? 'Resumen General (Sin Eurorutas)' : `Reservas - ${activeTab}`;
     generatePDF(title, filteredReservations);
+  };
+
+  const handleSelectAll = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.checked) {
+      setSelectedIds(new Set(filteredReservations.map(r => r.id)));
+    } else {
+      setSelectedIds(new Set());
+    }
+  };
+
+  const handleSelectOne = (id: string) => {
+    const newSet = new Set(selectedIds);
+    if (newSet.has(id)) {
+      newSet.delete(id);
+    } else {
+      newSet.add(id);
+    }
+    setSelectedIds(newSet);
+  };
+
+  const handleImportFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (activeTab === 'RESUMEN') {
+      alert('Por favor, selecciona un operador específico en el menú lateral antes de importar un archivo.');
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      return;
+    }
+
+    setIsImporting(true);
+    try {
+      let parsedData: any[] = [];
+      const fileType = file.name.split('.').pop()?.toLowerCase();
+
+      if (fileType === 'xlsx' || fileType === 'xls' || fileType === 'csv') {
+        parsedData = await parseExcelFile(file, activeTab);
+      } else if (fileType === 'pdf') {
+        parsedData = await parsePDFFile(file, activeTab);
+      } else {
+        throw new Error('Formato de archivo no soportado. Por favor, usa .xlsx, .xls, .csv o .pdf');
+      }
+
+      if (parsedData.length > 0) {
+        await batchAddReservations(parsedData);
+        alert(`¡Éxito! Se han importado ${parsedData.length} reservas correctamente.`);
+      } else {
+        alert('No se encontraron reservas válidas en el archivo.');
+      }
+    } catch (error: any) {
+      console.error('Error importing file:', error);
+      alert(`Error al importar: ${error.message}`);
+    } finally {
+      setIsImporting(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
   };
 
   return (
@@ -202,6 +270,35 @@ export default function App() {
           </div>
           
           <div className="flex items-center gap-3">
+            {selectedIds.size > 0 && (
+              <button
+                onClick={() => setShowBatchDeleteModal(true)}
+                className="flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-lg text-sm font-medium hover:bg-red-700 transition-colors shadow-sm"
+              >
+                <Trash2 size={16} />
+                <span className="hidden sm:inline">Eliminar ({selectedIds.size})</span>
+              </button>
+            )}
+            {activeTab !== 'RESUMEN' && (
+              <>
+                <input
+                  type="file"
+                  ref={fileInputRef}
+                  onChange={handleImportFile}
+                  accept=".xlsx,.xls,.csv,.pdf"
+                  className="hidden"
+                />
+                <button
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={isImporting}
+                  className={`flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg text-sm font-medium hover:bg-emerald-700 transition-colors shadow-sm ${isImporting ? 'opacity-50 cursor-not-allowed' : ''}`}
+                  title="Importar Excel o PDF"
+                >
+                  <Upload size={16} />
+                  <span className="hidden sm:inline">{isImporting ? 'Importando...' : 'Importar'}</span>
+                </button>
+              </>
+            )}
             <button
               onClick={handleExportPDF}
               className="flex items-center gap-2 px-4 py-2 bg-slate-100 text-slate-700 rounded-lg text-sm font-medium hover:bg-slate-200 transition-colors"
@@ -244,6 +341,14 @@ export default function App() {
               <table className="min-w-full divide-y divide-gray-200">
                 <thead className="bg-gray-50">
                   <tr>
+                    <th scope="col" className="px-6 py-3 text-left w-10">
+                      <input
+                        type="checkbox"
+                        className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                        checked={filteredReservations.length > 0 && selectedIds.size === filteredReservations.length}
+                        onChange={handleSelectAll}
+                      />
+                    </th>
                     {activeTab === 'RESUMEN' && (
                       <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Operador</th>
                     )}
@@ -272,13 +377,21 @@ export default function App() {
                 <tbody className="bg-white divide-y divide-gray-200">
                   {filteredReservations.length === 0 ? (
                     <tr>
-                      <td colSpan={activeTab === 'RESUMEN' ? 10 : 9} className="px-6 py-12 text-center text-gray-500">
+                      <td colSpan={activeTab === 'RESUMEN' ? 11 : 10} className="px-6 py-12 text-center text-gray-500">
                         No se encontraron reservas.
                       </td>
                     </tr>
                   ) : (
                     filteredReservations.map((res) => (
-                      <tr key={res.id} className="hover:bg-gray-50 transition-colors">
+                      <tr key={res.id} className={`hover:bg-gray-50 transition-colors ${selectedIds.has(res.id) ? 'bg-blue-50/50' : ''}`}>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <input
+                            type="checkbox"
+                            className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                            checked={selectedIds.has(res.id)}
+                            onChange={() => handleSelectOne(res.id)}
+                          />
+                        </td>
                         {activeTab === 'RESUMEN' && (
                           <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{res.operator}</td>
                         )}
@@ -558,6 +671,36 @@ export default function App() {
                 className="px-4 py-2 text-sm font-medium text-white bg-red-600 border border-transparent rounded-lg hover:bg-red-700"
               >
                 Eliminar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Batch Delete Confirmation Modal */}
+      {showBatchDeleteModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-sm overflow-hidden p-6">
+            <h3 className="text-lg font-semibold text-gray-900 mb-2">Eliminar Múltiples Reservas</h3>
+            <p className="text-sm text-gray-600 mb-6">
+              ¿Estás seguro de que deseas eliminar las <strong>{selectedIds.size}</strong> reservas seleccionadas? Esta acción no se puede deshacer.
+            </p>
+            <div className="flex justify-end gap-3">
+              <button
+                onClick={() => setShowBatchDeleteModal(false)}
+                className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={() => {
+                  batchDeleteReservations(Array.from(selectedIds));
+                  setSelectedIds(new Set());
+                  setShowBatchDeleteModal(false);
+                }}
+                className="px-4 py-2 text-sm font-medium text-white bg-red-600 border border-transparent rounded-lg hover:bg-red-700"
+              >
+                Eliminar Todas
               </button>
             </div>
           </div>

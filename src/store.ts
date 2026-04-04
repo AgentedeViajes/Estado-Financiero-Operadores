@@ -66,6 +66,27 @@ export function useAppStore() {
     }
   };
 
+  const batchAddReservations = async (newReservations: Omit<Reservation, 'id' | 'createdAt'>[]) => {
+    const toInsert: Reservation[] = newReservations.map(res => ({
+      ...res,
+      id: crypto.randomUUID(),
+      createdAt: Date.now(),
+    }));
+    
+    // Optimistic update
+    setReservations(prev => [...prev, ...toInsert]);
+    
+    const { error } = await supabase.from('reservations').insert(toInsert);
+    if (error) {
+      console.error('Error batch adding reservations to Supabase:', error);
+      alert(`Error al guardar las reservas importadas en Supabase:\n${error.message}`);
+      // Revert optimistic update on error
+      const idsToRemove = toInsert.map(r => r.id);
+      setReservations(prev => prev.filter(r => !idsToRemove.includes(r.id)));
+      throw error;
+    }
+  };
+
   const updateReservation = async (id: string, updates: Partial<Reservation>) => {
     const previousReservations = [...reservations];
     setReservations(prev => prev.map(r => r.id === id ? { ...r, ...updates } : r));
@@ -86,6 +107,18 @@ export function useAppStore() {
     if (error) {
       console.error('Error deleting reservation in Supabase:', error);
       alert(`Error al eliminar en Supabase: ${error.message}`);
+      setReservations(previousReservations);
+    }
+  };
+
+  const batchDeleteReservations = async (ids: string[]) => {
+    const previousReservations = [...reservations];
+    setReservations(prev => prev.filter(r => !ids.includes(r.id)));
+    
+    const { error } = await supabase.from('reservations').delete().in('id', ids);
+    if (error) {
+      console.error('Error batch deleting reservations in Supabase:', error);
+      alert(`Error al eliminar reservas: ${error.message}`);
       setReservations(previousReservations);
     }
   };
@@ -138,8 +171,10 @@ export function useAppStore() {
     reservations,
     operators,
     addReservation,
+    batchAddReservations,
     updateReservation,
     deleteReservation,
+    batchDeleteReservations,
     togglePaidStatus,
     addOperator,
     deleteOperator,
