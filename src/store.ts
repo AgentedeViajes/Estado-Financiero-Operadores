@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react';
-import { Reservation, DEFAULT_OPERATORS } from './types';
+import { Reservation, OperatorPayment, DEFAULT_OPERATORS } from './types';
 import { supabase } from './lib/supabase';
 
 export function useAppStore() {
   const [reservations, setReservations] = useState<Reservation[]>([]);
+  const [payments, setPayments] = useState<OperatorPayment[]>([]);
   const [operators, setOperators] = useState<string[]>([]);
   const [isLoaded, setIsLoaded] = useState(false);
 
@@ -39,6 +40,19 @@ export function useAppStore() {
       } else if (resData) {
         setReservations(resData as Reservation[]);
       }
+
+      // Fetch payments
+      const { data: payData, error: payError } = await supabase
+        .from('operator_payments')
+        .select('*');
+        
+      if (payError) {
+        console.error("Error fetching payments:", payError);
+        // Don't alert here to avoid blocking if table doesn't exist yet
+      } else if (payData) {
+        setPayments(payData as OperatorPayment[]);
+      }
+
     } catch (error: any) {
       console.error('Unexpected error fetching data from Supabase:', error);
       alert(`Error inesperado de conexión: ${error.message || 'Desconocido'}`);
@@ -167,8 +181,38 @@ export function useAppStore() {
     }
   };
 
+  const addPayment = async (payment: Omit<OperatorPayment, 'id' | 'createdAt'>) => {
+    const newPayment: OperatorPayment = {
+      ...payment,
+      id: crypto.randomUUID(),
+      createdAt: Date.now(),
+    };
+    
+    setPayments(prev => [...prev, newPayment]);
+    
+    const { error } = await supabase.from('operator_payments').insert([newPayment]);
+    if (error) {
+      console.error('Error adding payment to Supabase:', error);
+      alert(`Error al guardar el pago:\n${error.message}`);
+      setPayments(prev => prev.filter(p => p.id !== newPayment.id));
+    }
+  };
+
+  const deletePayment = async (id: string) => {
+    const previousPayments = [...payments];
+    setPayments(prev => prev.filter(p => p.id !== id));
+    
+    const { error } = await supabase.from('operator_payments').delete().eq('id', id);
+    if (error) {
+      console.error('Error deleting payment in Supabase:', error);
+      alert(`Error al eliminar el pago: ${error.message}`);
+      setPayments(previousPayments);
+    }
+  };
+
   return {
     reservations,
+    payments,
     operators,
     addReservation,
     batchAddReservations,
@@ -178,6 +222,8 @@ export function useAppStore() {
     togglePaidStatus,
     addOperator,
     deleteOperator,
+    addPayment,
+    deletePayment,
     isLoaded
   };
 }

@@ -17,8 +17,9 @@ import { Reservation } from './types';
 
 export default function App() {
   const { 
-    reservations, operators, addReservation, batchAddReservations,
-    deleteReservation, batchDeleteReservations, togglePaidStatus, addOperator, deleteOperator, isLoaded 
+    reservations, payments, operators, addReservation, batchAddReservations,
+    deleteReservation, batchDeleteReservations, togglePaidStatus, addOperator, deleteOperator,
+    addPayment, deletePayment, isLoaded 
   } = useAppStore();
 
   const [activeTab, setActiveTab] = useState<string>('RESUMEN');
@@ -28,6 +29,10 @@ export default function App() {
   const [showNewOperatorModal, setShowNewOperatorModal] = useState(false);
   const [newOperatorName, setNewOperatorName] = useState('');
   const [isImporting, setIsImporting] = useState(false);
+  
+  // Payment form state
+  const [paymentDescription, setPaymentDescription] = useState('');
+  const [paymentAmount, setPaymentAmount] = useState('');
   
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -86,6 +91,20 @@ export default function App() {
     }
   };
 
+  const handleAddPayment = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!paymentDescription.trim() || !paymentAmount) return;
+    
+    addPayment({
+      operator: activeTab,
+      description: paymentDescription,
+      amount: parseFloat(paymentAmount)
+    });
+    
+    setPaymentDescription('');
+    setPaymentAmount('');
+  };
+
   // Filter reservations based on active tab and search term
   let filteredReservations = reservations;
   
@@ -113,6 +132,12 @@ export default function App() {
     const timeB = new Date(b.limitePago).getTime();
     return sortOrder === 'asc' ? timeA - timeB : timeB - timeA;
   });
+
+  // Calculate financial summary for the current operator
+  const saldoAPagar = filteredReservations.reduce((sum, res) => sum + res.valorNeto, 0);
+  const operatorPayments = payments.filter(p => p.operator === activeTab);
+  const saldoEnCuentaInvertido = operatorPayments.reduce((sum, p) => sum + p.amount, 0);
+  const estadoDeCuenta = saldoAPagar - saldoEnCuentaInvertido;
 
   const handleExportPDF = () => {
     const title = activeTab === 'RESUMEN' ? 'Resumen General (Sin Eurorutas)' : `Reservas - ${activeTab}`;
@@ -435,6 +460,111 @@ export default function App() {
               </table>
             </div>
           </div>
+
+          {/* Financial Summary & Payments Section (Only visible for specific operators) */}
+          {activeTab !== 'RESUMEN' && (
+            <div className="mt-8 grid grid-cols-1 lg:grid-cols-3 gap-6">
+              {/* Left side: Payments input and list */}
+              <div className="lg:col-span-2 bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+                <h3 className="text-lg font-semibold text-gray-900 mb-4">Pagos / Tickets Pendientes</h3>
+                
+                <form onSubmit={handleAddPayment} className="flex flex-col sm:flex-row gap-3 mb-6">
+                  <input
+                    type="text"
+                    required
+                    placeholder="Descripción del pago o ticket..."
+                    value={paymentDescription}
+                    onChange={(e) => setPaymentDescription(e.target.value)}
+                    className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500"
+                  />
+                  <div className="relative w-full sm:w-48">
+                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                      <span className="text-gray-500 sm:text-sm">$</span>
+                    </div>
+                    <input
+                      type="number"
+                      step="0.01"
+                      required
+                      placeholder="Monto"
+                      value={paymentAmount}
+                      onChange={(e) => setPaymentAmount(e.target.value)}
+                      className="w-full pl-7 pr-3 py-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500"
+                    />
+                  </div>
+                  <button
+                    type="submit"
+                    className="px-4 py-2 bg-slate-800 text-white rounded-lg text-sm font-medium hover:bg-slate-900 transition-colors whitespace-nowrap"
+                  >
+                    Añadir Pago
+                  </button>
+                </form>
+
+                <div className="overflow-x-auto">
+                  <table className="min-w-full divide-y divide-gray-200">
+                    <thead className="bg-gray-50">
+                      <tr>
+                        <th scope="col" className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Fecha</th>
+                        <th scope="col" className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Descripción</th>
+                        <th scope="col" className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase">Monto</th>
+                        <th scope="col" className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase"></th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-200">
+                      {operatorPayments.length === 0 ? (
+                        <tr>
+                          <td colSpan={4} className="px-4 py-6 text-center text-sm text-gray-500">
+                            No hay pagos registrados para este operador.
+                          </td>
+                        </tr>
+                      ) : (
+                        operatorPayments.map(payment => (
+                          <tr key={payment.id} className="hover:bg-gray-50">
+                            <td className="px-4 py-3 text-sm text-gray-600">
+                              {format(new Date(payment.createdAt), 'dd/MM/yyyy')}
+                            </td>
+                            <td className="px-4 py-3 text-sm text-gray-900">{payment.description}</td>
+                            <td className="px-4 py-3 text-sm font-medium text-gray-900 text-right">
+                              ${payment.amount.toFixed(2)}
+                            </td>
+                            <td className="px-4 py-3 text-right">
+                              <button
+                                onClick={() => deletePayment(payment.id)}
+                                className="text-red-500 hover:text-red-700 p-1 rounded hover:bg-red-50"
+                                title="Eliminar pago"
+                              >
+                                <Trash2 size={16} />
+                              </button>
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {/* Right side: Summary boxes */}
+              <div className="space-y-4">
+                <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-5 shadow-sm">
+                  <h4 className="text-sm font-semibold text-yellow-800 uppercase tracking-wider mb-1">Saldo a Pagar</h4>
+                  <p className="text-3xl font-bold text-yellow-900">${saldoAPagar.toFixed(2)}</p>
+                  <p className="text-xs text-yellow-700 mt-1">Sumatoria de valores netos</p>
+                </div>
+                
+                <div className="bg-green-50 border border-green-200 rounded-xl p-5 shadow-sm">
+                  <h4 className="text-sm font-semibold text-green-800 uppercase tracking-wider mb-1">Saldo en Cuenta Invertido</h4>
+                  <p className="text-3xl font-bold text-green-900">${saldoEnCuentaInvertido.toFixed(2)}</p>
+                  <p className="text-xs text-green-700 mt-1">Pagos y tickets pendientes</p>
+                </div>
+                
+                <div className="bg-red-50 border border-red-200 rounded-xl p-5 shadow-sm">
+                  <h4 className="text-sm font-semibold text-red-800 uppercase tracking-wider mb-1">Estado de Cuenta</h4>
+                  <p className="text-3xl font-bold text-red-900">${estadoDeCuenta.toFixed(2)}</p>
+                  <p className="text-xs text-red-700 mt-1">Saldo a Pagar - Saldo Invertido</p>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       </main>
 

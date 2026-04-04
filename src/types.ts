@@ -12,6 +12,14 @@ export interface Reservation {
   createdAt: number;
 }
 
+export interface OperatorPayment {
+  id: string;
+  operator: string;
+  amount: number;
+  description: string;
+  createdAt: number;
+}
+
 export const DEFAULT_OPERATORS = [
   "EURORUTAS",
   "W2M",
