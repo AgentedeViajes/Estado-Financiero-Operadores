@@ -7,6 +7,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { useAppStore } from './store';
 import { generatePDF } from './lib/pdf';
 import { parseExcelFile, parsePDFFile } from './lib/importUtils';
+import { formatSafeDate } from './lib/utils';
 import { format } from 'date-fns';
 import { 
   Search, Plus, Download, Trash2, CheckCircle, 
@@ -451,7 +452,7 @@ export default function App() {
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">{res.siti}</td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{res.apellido}</td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
-                          {format(new Date(res.limitePago), 'dd/MM/yyyy')}
+                          {formatSafeDate(res.limitePago)}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">{res.agente}</td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">

@@ -2,6 +2,7 @@ import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { Reservation } from '../types';
 import { format } from 'date-fns';
+import { formatSafeDate } from './utils';
 
 export const generatePDF = (title: string, reservations: Reservation[]) => {
   const doc = new jsPDF('landscape');
@@ -30,7 +31,7 @@ export const generatePDF = (title: string, reservations: Reservation[]) => {
     res.localizador,
     res.siti,
     res.apellido,
-    format(new Date(res.limitePago), 'dd/MM/yyyy'),
+    formatSafeDate(res.limitePago),
     res.agente,
     `$${res.valorNeto.toFixed(2)}`,
     res.isPaid ? 'Abonada' : 'Pendiente'

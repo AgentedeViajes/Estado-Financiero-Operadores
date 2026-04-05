@@ -4,11 +4,24 @@ import * as pdfjsLib from 'pdfjs-dist';
 // Configure PDF.js worker
 pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.mjs`;
 
+const excelSerialToISO = (serial: number) => {
+  // Excel's epoch is Dec 30, 1899. 
+  // We use Math.floor to get the integer part (the day).
+  // We add a tiny epsilon (0.00001) to handle potential floating point precision issues.
+  const date = new Date(Math.round((serial - 25569) * 86400 * 1000));
+  // To avoid timezone shifts, we use the UTC representation
+  return date.toISOString().split('T')[0];
+};
+
 const formatDateToLocalISO = (date: Date) => {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, '0');
   const day = String(date.getDate()).padStart(2, '0');
   return `${year}-${month}-${day}`;
+};
+
+const formatDateToUTCISO = (date: Date) => {
+  return date.toISOString().split('T')[0];
 };
 
 export async function parseExcelFile(file: File, operator: string): Promise<any[]> {
@@ -17,7 +30,8 @@ export async function parseExcelFile(file: File, operator: string): Promise<any[
     reader.onload = (e) => {
       try {
         const data = new Uint8Array(e.target?.result as ArrayBuffer);
-        const workbook = XLSX.read(data, { type: 'array', cellDates: true });
+        // We don't use cellDates: true here to handle serials manually and more predictably
+        const workbook = XLSX.read(data, { type: 'array' });
         const firstSheetName = workbook.SheetNames[0];
         const worksheet = workbook.Sheets[firstSheetName];
         const json = XLSX.utils.sheet_to_json(worksheet);
@@ -47,14 +61,12 @@ export async function parseExcelFile(file: File, operator: string): Promise<any[
           
           let limitePago = '';
 
-          if (rawDate instanceof Date && !isNaN(rawDate.getTime())) {
-            limitePago = formatDateToLocalISO(rawDate);
-          } else if (typeof rawDate === 'number') {
-            // Excel date serial
-            const date = new Date(Math.round((rawDate - 25569) * 86400 * 1000));
-            if (!isNaN(date.getTime())) {
-              limitePago = formatDateToLocalISO(date);
-            }
+          if (typeof rawDate === 'number') {
+            // Excel date serial - conversion to UTC ISO string
+            limitePago = excelSerialToISO(rawDate);
+          } else if (rawDate instanceof Date && !isNaN(rawDate.getTime())) {
+            // If it's already a date object, use UTC to avoid one-day-off shift
+            limitePago = formatDateToUTCISO(rawDate);
           } else if (typeof rawDate === 'string' && rawDate.trim()) {
             // Clean the string from time or extra spaces
             const cleanDate = rawDate.trim().split(/\s+/)[0]; 
@@ -87,11 +99,12 @@ export async function parseExcelFile(file: File, operator: string): Promise<any[
               }
             }
             
-            // Final fallback for string: try native Date parser if our logic didn't work
+            // Final fallback for string: try native Date parser
             if (!limitePago) {
               const parsedDate = new Date(rawDate);
               if (!isNaN(parsedDate.getTime())) {
-                limitePago = formatDateToLocalISO(parsedDate);
+                // For strings, we might need to be careful, but usually ISO is safer
+                limitePago = formatDateToUTCISO(parsedDate);
               }
             }
           }
@@ -113,7 +126,7 @@ export async function parseExcelFile(file: File, operator: string): Promise<any[
             localizador: String(getVal('localizador') || ''),
             siti: String(getVal('negocio') || getVal('siti') || ''),
             apellido: String(getVal('pasajero') || ''),
-            limitePago: limitePago || formatDateToLocalISO(new Date()),
+            limitePago: limitePago || formatDateToUTCISO(new Date()),
             agente: String(getVal('agente') || ''),
             valorNeto: isNaN(valorNeto) ? 0 : valorNeto,
             isPaid: false
