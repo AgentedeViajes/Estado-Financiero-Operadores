@@ -4,6 +4,13 @@ import * as pdfjsLib from 'pdfjs-dist';
 // Configure PDF.js worker
 pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.mjs`;
 
+const formatDateToLocalISO = (date: Date) => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
 export async function parseExcelFile(file: File, operator: string): Promise<any[]> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -41,12 +48,12 @@ export async function parseExcelFile(file: File, operator: string): Promise<any[
           let limitePago = '';
 
           if (rawDate instanceof Date && !isNaN(rawDate.getTime())) {
-            limitePago = rawDate.toISOString().split('T')[0];
+            limitePago = formatDateToLocalISO(rawDate);
           } else if (typeof rawDate === 'number') {
             // Excel date serial
             const date = new Date(Math.round((rawDate - 25569) * 86400 * 1000));
             if (!isNaN(date.getTime())) {
-              limitePago = date.toISOString().split('T')[0];
+              limitePago = formatDateToLocalISO(date);
             }
           } else if (typeof rawDate === 'string' && rawDate.trim()) {
             // Clean the string from time or extra spaces
@@ -84,7 +91,7 @@ export async function parseExcelFile(file: File, operator: string): Promise<any[
             if (!limitePago) {
               const parsedDate = new Date(rawDate);
               if (!isNaN(parsedDate.getTime())) {
-                limitePago = parsedDate.toISOString().split('T')[0];
+                limitePago = formatDateToLocalISO(parsedDate);
               }
             }
           }
@@ -106,7 +113,7 @@ export async function parseExcelFile(file: File, operator: string): Promise<any[
             localizador: String(getVal('localizador') || ''),
             siti: String(getVal('negocio') || getVal('siti') || ''),
             apellido: String(getVal('pasajero') || ''),
-            limitePago: limitePago || new Date().toISOString().split('T')[0],
+            limitePago: limitePago || formatDateToLocalISO(new Date()),
             agente: String(getVal('agente') || ''),
             valorNeto: isNaN(valorNeto) ? 0 : valorNeto,
             isPaid: false
@@ -152,7 +159,7 @@ export async function parsePDFFile(file: File, operator: string): Promise<any[]>
           const dateMatch = line.match(dateRegex);
           const currencyMatch = line.match(currencyRegex);
           
-          let limitePago = new Date().toISOString().split('T')[0];
+          let limitePago = formatDateToLocalISO(new Date());
           if (dateMatch) {
             const rawDate = dateMatch[1];
             const parts = rawDate.split(/[-/]/);
