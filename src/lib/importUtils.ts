@@ -10,7 +10,7 @@ export async function parseExcelFile(file: File, operator: string): Promise<any[
     reader.onload = (e) => {
       try {
         const data = new Uint8Array(e.target?.result as ArrayBuffer);
-        const workbook = XLSX.read(data, { type: 'array' });
+        const workbook = XLSX.read(data, { type: 'array', cellDates: true });
         const firstSheetName = workbook.SheetNames[0];
         const worksheet = workbook.Sheets[firstSheetName];
         const json = XLSX.utils.sheet_to_json(worksheet);
@@ -22,18 +22,38 @@ export async function parseExcelFile(file: File, operator: string): Promise<any[
           };
 
           // Parse date
-          let limitePago = getVal('limite de pago') || getVal('límite de pago');
-          if (typeof limitePago === 'number') {
+          let rawDate = getVal('limite de pago') || getVal('límite de pago');
+          let limitePago = '';
+
+          if (rawDate instanceof Date) {
+            limitePago = rawDate.toISOString().split('T')[0];
+          } else if (typeof rawDate === 'number') {
             // Excel date serial
-            const date = new Date(Math.round((limitePago - 25569) * 86400 * 1000));
+            const date = new Date(Math.round((rawDate - 25569) * 86400 * 1000));
             limitePago = date.toISOString().split('T')[0];
-          } else if (typeof limitePago === 'string') {
-            // Try to format DD/MM/YYYY to YYYY-MM-DD
-            const parts = limitePago.split(/[-/]/);
+          } else if (typeof rawDate === 'string' && rawDate.trim()) {
+            // Try to format DD/MM/YYYY or YYYY-MM-DD to YYYY-MM-DD
+            const parts = rawDate.trim().split(/[-/]/);
             if (parts.length === 3) {
-              if (parts[2].length === 4) { // DD/MM/YYYY
-                limitePago = `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
+              let day, month, year;
+              if (parts[0].length === 4) {
+                // YYYY-MM-DD
+                year = parts[0];
+                month = parts[1];
+                day = parts[2];
+              } else {
+                // Assume DD-MM-YYYY or DD-MM-YY
+                day = parts[0];
+                month = parts[1];
+                year = parts[2];
+                if (year.length === 2) {
+                  year = '20' + year;
+                }
               }
+              limitePago = `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+            } else {
+              // Fallback to whatever string it is
+              limitePago = rawDate;
             }
           }
 
@@ -92,7 +112,7 @@ export async function parsePDFFile(file: File, operator: string): Promise<any[]>
       const parsedReservations: any[] = [];
 
       // Example heuristic: looking for lines that might contain a date (limite de pago) and a number (importe)
-      const dateRegex = /(\d{2}[\/\-]\d{2}[\/\-]\d{4})/;
+      const dateRegex = /(\d{4}[\/\-]\d{2}[\/\-]\d{2})|(\d{2}[\/\-]\d{2}[\/\-]\d{2,4})/;
       const currencyRegex = /[$€]?\s?(\d+[.,]\d{2})/;
 
       lines.forEach(line => {
@@ -102,8 +122,26 @@ export async function parsePDFFile(file: File, operator: string): Promise<any[]>
           
           let limitePago = new Date().toISOString().split('T')[0];
           if (dateMatch) {
-            const parts = dateMatch[1].split(/[-/]/);
-            limitePago = `${parts[2]}-${parts[1]}-${parts[0]}`;
+            const rawDate = dateMatch[1];
+            const parts = rawDate.split(/[-/]/);
+            if (parts.length === 3) {
+              let day, month, year;
+              if (parts[0].length === 4) {
+                // YYYY-MM-DD
+                year = parts[0];
+                month = parts[1];
+                day = parts[2];
+              } else {
+                // DD-MM-YYYY or DD-MM-YY
+                day = parts[0];
+                month = parts[1];
+                year = parts[2];
+                if (year.length === 2) {
+                  year = '20' + year;
+                }
+              }
+              limitePago = `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+            }
           }
 
           let valorNeto = 0;
