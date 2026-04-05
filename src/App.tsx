@@ -11,14 +11,14 @@ import { format } from 'date-fns';
 import { 
   Search, Plus, Download, Trash2, CheckCircle, 
   XCircle, Menu, X, FileText, LayoutDashboard,
-  ArrowUpDown, ArrowUp, ArrowDown, Upload
+  ArrowUpDown, ArrowUp, ArrowDown, Upload, Pencil
 } from 'lucide-react';
 import { Reservation } from './types';
 
 export default function App() {
   const { 
     reservations, payments, operators, addReservation, batchAddReservations,
-    deleteReservation, batchDeleteReservations, togglePaidStatus, addOperator, deleteOperator,
+    updateReservation, deleteReservation, batchDeleteReservations, togglePaidStatus, addOperator, deleteOperator,
     addPayment, deletePayment, isLoaded 
   } = useAppStore();
 
@@ -26,6 +26,7 @@ export default function App() {
   const [searchTerm, setSearchTerm] = useState('');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [showAddModal, setShowAddModal] = useState(false);
+  const [editingReservationId, setEditingReservationId] = useState<string | null>(null);
   const [showNewOperatorModal, setShowNewOperatorModal] = useState(false);
   const [newOperatorName, setNewOperatorName] = useState('');
   const [isImporting, setIsImporting] = useState(false);
@@ -64,7 +65,7 @@ export default function App() {
 
   const handleAddReservation = (e: React.FormEvent) => {
     e.preventDefault();
-    addReservation({
+    const reservationData = {
       operator: formData.operator || activeTab,
       phNemo: formData.phNemo,
       localizador: formData.localizador,
@@ -74,12 +75,35 @@ export default function App() {
       agente: formData.agente,
       valorNeto: parseFloat(formData.valorNeto),
       isPaid: false
-    });
+    };
+
+    if (editingReservationId) {
+      updateReservation(editingReservationId, reservationData);
+    } else {
+      addReservation(reservationData);
+    }
+    
     setShowAddModal(false);
+    setEditingReservationId(null);
     setFormData({
       operator: '', phNemo: '', localizador: '', siti: '', 
       apellido: '', limitePago: '', agente: '', valorNeto: ''
     });
+  };
+
+  const handleEditClick = (res: Reservation) => {
+    setFormData({
+      operator: res.operator,
+      phNemo: res.phNemo,
+      localizador: res.localizador,
+      siti: res.siti,
+      apellido: res.apellido,
+      limitePago: res.limitePago,
+      agente: res.agente,
+      valorNeto: res.valorNeto.toString()
+    });
+    setEditingReservationId(res.id);
+    setShowAddModal(true);
   };
 
   const handleAddOperator = (e: React.FormEvent) => {
@@ -135,7 +159,9 @@ export default function App() {
 
   // Calculate financial summary for the current operator
   const saldoAPagar = filteredReservations.reduce((sum, res) => sum + res.valorNeto, 0);
-  const operatorPayments = payments.filter(p => p.operator === activeTab);
+  const operatorPayments = activeTab === 'RESUMEN' 
+    ? payments.filter(p => p.operator !== 'EURORUTAS')
+    : payments.filter(p => p.operator === activeTab);
   const saldoEnCuentaInvertido = operatorPayments.reduce((sum, p) => sum + p.amount, 0);
   const estadoDeCuenta = saldoAPagar - saldoEnCuentaInvertido;
 
@@ -445,13 +471,22 @@ export default function App() {
                           </button>
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                          <button
-                            onClick={() => setReservationToDelete(res.id)}
-                            className="text-red-600 hover:text-red-900 p-2 rounded-lg hover:bg-red-50 transition-colors"
-                            title="Eliminar reserva"
-                          >
-                            <Trash2 size={18} />
-                          </button>
+                          <div className="flex justify-end gap-2">
+                            <button
+                              onClick={() => handleEditClick(res)}
+                              className="text-blue-600 hover:text-blue-900 p-2 rounded-lg hover:bg-blue-50 transition-colors"
+                              title="Editar reserva"
+                            >
+                              <Pencil size={18} />
+                            </button>
+                            <button
+                              onClick={() => setReservationToDelete(res.id)}
+                              className="text-red-600 hover:text-red-900 p-2 rounded-lg hover:bg-red-50 transition-colors"
+                              title="Eliminar reserva"
+                            >
+                              <Trash2 size={18} />
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     ))
@@ -461,8 +496,8 @@ export default function App() {
             </div>
           </div>
 
-          {/* Financial Summary & Payments Section (Only visible for specific operators) */}
-          {activeTab !== 'RESUMEN' && (
+          {/* Financial Summary & Payments Section */}
+          {activeTab !== 'RESUMEN' ? (
             <div className="mt-8 grid grid-cols-1 lg:grid-cols-3 gap-6">
               {/* Left side: Payments input and list */}
               <div className="lg:col-span-2 bg-white rounded-xl shadow-sm border border-gray-200 p-6">
@@ -564,6 +599,26 @@ export default function App() {
                 </div>
               </div>
             </div>
+          ) : (
+            <div className="mt-8 grid grid-cols-1 md:grid-cols-3 gap-6">
+              <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-5 shadow-sm">
+                <h4 className="text-sm font-semibold text-yellow-800 uppercase tracking-wider mb-1">Saldo a Pagar Total</h4>
+                <p className="text-3xl font-bold text-yellow-900">${saldoAPagar.toFixed(2)}</p>
+                <p className="text-xs text-yellow-700 mt-1">Sumatoria total (sin Eurorutas)</p>
+              </div>
+              
+              <div className="bg-green-50 border border-green-200 rounded-xl p-5 shadow-sm">
+                <h4 className="text-sm font-semibold text-green-800 uppercase tracking-wider mb-1">Saldo Invertido Total</h4>
+                <p className="text-3xl font-bold text-green-900">${saldoEnCuentaInvertido.toFixed(2)}</p>
+                <p className="text-xs text-green-700 mt-1">Pagos totales (sin Eurorutas)</p>
+              </div>
+              
+              <div className="bg-red-50 border border-red-200 rounded-xl p-5 shadow-sm">
+                <h4 className="text-sm font-semibold text-red-800 uppercase tracking-wider mb-1">Estado General Total</h4>
+                <p className="text-3xl font-bold text-red-900">${estadoDeCuenta.toFixed(2)}</p>
+                <p className="text-xs text-red-700 mt-1">Saldo a Pagar - Saldo Invertido</p>
+              </div>
+            </div>
           )}
         </div>
       </main>
@@ -573,8 +628,20 @@ export default function App() {
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
           <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl overflow-hidden">
             <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
-              <h3 className="text-lg font-semibold text-gray-900">Nueva Reserva</h3>
-              <button onClick={() => setShowAddModal(false)} className="text-gray-400 hover:text-gray-500">
+              <h3 className="text-lg font-semibold text-gray-900">
+                {editingReservationId ? 'Editar Reserva' : 'Nueva Reserva'}
+              </h3>
+              <button 
+                onClick={() => {
+                  setShowAddModal(false);
+                  setEditingReservationId(null);
+                  setFormData({
+                    operator: '', phNemo: '', localizador: '', siti: '', 
+                    apellido: '', limitePago: '', agente: '', valorNeto: ''
+                  });
+                }} 
+                className="text-gray-400 hover:text-gray-500"
+              >
                 <X size={20} />
               </button>
             </div>
@@ -685,7 +752,14 @@ export default function App() {
               <div className="mt-8 flex justify-end gap-3">
                 <button
                   type="button"
-                  onClick={() => setShowAddModal(false)}
+                  onClick={() => {
+                    setShowAddModal(false);
+                    setEditingReservationId(null);
+                    setFormData({
+                      operator: '', phNemo: '', localizador: '', siti: '', 
+                      apellido: '', limitePago: '', agente: '', valorNeto: ''
+                    });
+                  }}
                   className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
                 >
                   Cancelar
@@ -694,7 +768,7 @@ export default function App() {
                   type="submit"
                   className="px-4 py-2 text-sm font-medium text-white bg-blue-600 border border-transparent rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
                 >
-                  Guardar Reserva
+                  {editingReservationId ? 'Actualizar Reserva' : 'Guardar Reserva'}
                 </button>
               </div>
             </form>
