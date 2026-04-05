@@ -17,23 +17,42 @@ export async function parseExcelFile(file: File, operator: string): Promise<any[
         
         const parsedReservations = json.map((row: any) => {
           const getVal = (keyMatch: string) => {
-            const key = Object.keys(row).find(k => k.toLowerCase().includes(keyMatch.toLowerCase()));
+            const key = Object.keys(row).find(k => {
+              const cleanK = k.toLowerCase().trim();
+              const cleanMatch = keyMatch.toLowerCase().trim();
+              return cleanK.includes(cleanMatch);
+            });
             return key ? row[key] : '';
           };
 
-          // Parse date
-          let rawDate = getVal('limite de pago') || getVal('límite de pago');
+          // Parse date - try most specific names first
+          let rawDate = getVal('limite de pago') || 
+                        getVal('límite de pago') || 
+                        getVal('vencimiento') || 
+                        getVal('f. limite') || 
+                        getVal('f. límite') || 
+                        getVal('fecha pago') || 
+                        getVal('pago limite') ||
+                        getVal('vence') ||
+                        getVal('limite') ||
+                        getVal('venc') ||
+                        getVal('fecha');
+          
           let limitePago = '';
 
-          if (rawDate instanceof Date) {
+          if (rawDate instanceof Date && !isNaN(rawDate.getTime())) {
             limitePago = rawDate.toISOString().split('T')[0];
           } else if (typeof rawDate === 'number') {
             // Excel date serial
             const date = new Date(Math.round((rawDate - 25569) * 86400 * 1000));
-            limitePago = date.toISOString().split('T')[0];
+            if (!isNaN(date.getTime())) {
+              limitePago = date.toISOString().split('T')[0];
+            }
           } else if (typeof rawDate === 'string' && rawDate.trim()) {
-            // Try to format DD/MM/YYYY or YYYY-MM-DD to YYYY-MM-DD
-            const parts = rawDate.trim().split(/[-/]/);
+            // Clean the string from time or extra spaces
+            const cleanDate = rawDate.trim().split(/\s+/)[0]; 
+            const parts = cleanDate.split(/[-/.]/);
+            
             if (parts.length === 3) {
               let day, month, year;
               if (parts[0].length === 4) {
@@ -41,7 +60,7 @@ export async function parseExcelFile(file: File, operator: string): Promise<any[
                 year = parts[0];
                 month = parts[1];
                 day = parts[2];
-              } else {
+              } else if (parts[2].length === 4 || parts[2].length === 2) {
                 // Assume DD-MM-YYYY or DD-MM-YY
                 day = parts[0];
                 month = parts[1];
@@ -49,11 +68,24 @@ export async function parseExcelFile(file: File, operator: string): Promise<any[
                 if (year.length === 2) {
                   year = '20' + year;
                 }
+              } else if (parts[0].length === 2 && parts[1].length === 2 && parts[2].length === 4) {
+                // Another check for DD-MM-YYYY
+                day = parts[0];
+                month = parts[1];
+                year = parts[2];
               }
-              limitePago = `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
-            } else {
-              // Fallback to whatever string it is
-              limitePago = rawDate;
+              
+              if (day && month && year) {
+                limitePago = `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+              }
+            }
+            
+            // Final fallback for string: try native Date parser if our logic didn't work
+            if (!limitePago) {
+              const parsedDate = new Date(rawDate);
+              if (!isNaN(parsedDate.getTime())) {
+                limitePago = parsedDate.toISOString().split('T')[0];
+              }
             }
           }
 
